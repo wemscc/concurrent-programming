@@ -95,10 +95,14 @@ Wemerson Silva C. da Costa
 	Tempo finalização: 0.002650667
 
 # Ganho de desempenho estimado para as operações:
-T_s : Tempo total de execução do problema sequencial;
-t_s : tempo da parte sequencial do programa que não será dividida entre threads
-t_p : tempo da parte sequencial do programa que será dividida entre n threads
-N   : numero de threads
+$T_s$ : Tempo total de execução do problema sequencial;
+
+$t_s$ : tempo da parte sequencial do programa que não será dividida entre threads
+
+$t_p$ : tempo da parte sequencial do programa que será dividida entre n threads
+
+$N$   : numero de threads
+
 
 
 $S = \dfrac{T_s}{t_s+\dfrac{t_p}{N}}$
