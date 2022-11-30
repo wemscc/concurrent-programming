@@ -3,17 +3,16 @@
 #include <math.h>
 #include <unistd.h>
 #include <pthread.h>
-#define TOL 1e-15
-#define NTHREADS 4
+#define TOL 1e-12
+#define NTHREADS 8
 
 /* Variaveis globais */
 pthread_mutex_t x_mutex;
-int qntTrapezios = 4;
-double integral = 0, integral_nova = 0;
-double h = 0;
-
-int j = 0;
-int a = 2, b = 4;
+int qntTrapezios = 8;                       // chute inicial de trapézios
+double integral = 0, integral_auxiliar = 0; // integra
+double h = 0;                               // largura do trapézio
+int max_iter = 35;                          // numero de iterações máximo
+int a = 0, b = 1000000;                     // limites de integração
 
 /*Por algum motivo incluir a "timer.h" não está funcionando, então colei o código aqui*/
 #ifndef _CLOCK_TIMER_H
@@ -30,19 +29,15 @@ int a = 2, b = 4;
 
 typedef struct
 {
-    int id;
-    int inicio, fim;
+    int id;          // id da thread
+    int inicio, fim; // variáveis que guardam as posições iniciais e finais de cada thread
 } tArgs;
 
-double f(double x)
+double f(double x) // funcao a ser integrada
 {
     return x * x;
-    //    double aux = pow(10,7);
-    //  double aux2 = pow(x,3);
-    // return ((-2*x) + ((3*aux2)/aux) );
 }
-
-double trapezoidal_seq(double f(double x), double a, double b, int n)
+double trapezoidal_seq(double f(double x), double a, double b, int n) // implementação sequencial do problema
 {
     double x, h, soma_local = 0, integral;
     int i;
@@ -61,24 +56,27 @@ void *tarefa(void *arg)
     tArgs *args = (tArgs *)arg;
     int i, intervalo;
     int id = args->id;
-    double somaLocal = 0;
-    double x;
-    intervalo = qntTrapezios / NTHREADS;
-    args->inicio = id * intervalo;
-    args->fim = args->inicio + intervalo;
+    double somaLocal = 0;                // variavel acumuladora da função
+    double x;                            // variável que será utilizada para calcular valor da função no ponto
+    intervalo = qntTrapezios / NTHREADS; // tamanho do intervalo de cada thread
+    pthread_mutex_lock(&x_mutex);
+    h = fabs(b - a) / qntTrapezios; // vai diminuindo a largura do trapézio conforme vamos aumentando o número dos mesmos, com exclusão mutua já que a variável é global
+    pthread_mutex_unlock(&x_mutex);
+    args->inicio = id * intervalo;        // atribui a posição inicial de onde a thread deve começar a calcular
+    args->fim = args->inicio + intervalo; // atribui a posição final de onde a thread deve começar a calcular
     if (qntTrapezios % NTHREADS != 0)
     {
         if (id == (NTHREADS - 1))
-            args->fim += (qntTrapezios % NTHREADS);
+            args->fim += (qntTrapezios % NTHREADS); // coloca para a última thread calcular caso tenha resto na divisão de tarefas
     }
-    h = fabs(b - a) / qntTrapezios;
+
     for (int i = args->inicio; i < args->fim; i++)
     {
-        x = a + i * h;
-        somaLocal += f(x);
+        x = a + i * h;     //   atribui o ponto x dentro do intervalo
+        somaLocal += f(x); // calcula a função no ponto x e poe no acumulador
     }
     pthread_mutex_lock(&x_mutex);
-    integral_nova += (2 * somaLocal);
+    integral_auxiliar += (2 * somaLocal); // vai atualizando o valor da integral conforme vamos calculando os pontos, com exclusão mutua já que a variável é global
     pthread_mutex_unlock(&x_mutex);
     pthread_exit(NULL);
 }
@@ -95,7 +93,6 @@ int main()
     GET_TIME(inicio);
     do
     {
-        integral = integral_nova;
         for (int i = 0; i < NTHREADS; i++)
         {
             (args + i)->id = i;
@@ -112,37 +109,50 @@ int main()
         {
             pthread_join(threads[i], NULL);
         }
-        integral_nova += f(a) + f(b);
-        integral_nova *= (h / 2);
-        qntTrapezios = qntTrapezios * 1.5;
-        diferenca = fabs(integral_nova - integral);
-        j++;
-    } while (diferenca >= TOL && j < 30);
-
+        integral_auxiliar += f(a) + f(b);                // calcula o resto da expressao agora que todos os pontos foram calculados
+        integral_auxiliar = integral_auxiliar * (h / 2); // calcula o resto da expressao agora que todos os pontos foram calculados
+        diferenca = fabs(integral_auxiliar - integral);  // calcula a diferenca da integral que acabamos de calcular com a que já tinhamos calculado
+        integral = integral_auxiliar;                    // agora a nova integral vira a velha
+        integral_auxiliar = 0;                           // e criamos uma nova integral
+        qntTrapezios = qntTrapezios * 1.5;               // vamos aumentando o numero de trapézios para aumentar a precisão
+        max_iter--;                                      // condição de parada caso entremos num cenário que esteja demorando muito
+    } while (diferenca > TOL && max_iter > 0);           // condição de parada: atingimos o limite de tolerancia ou acabaram nossas iterações disponíveis.
     GET_TIME(fim);
     delta = fim - inicio;
-    printf("Tempo de processamento concorrente: %lf", delta);
-    printf("\nO resultado da aproximação concorrente é: %lf\n\n", integral_nova);
-    double res_conc = integral_nova;
+    /*Mostra o resultado concorrente */
+    printf("\nTempo de processamento concorrente: %lf", delta);
+    printf("\nO resultado da aproximação concorrente é: %lf\n\n", integral);
+    double res_conc = integral;
     // Forma  Sequencial:
     GET_TIME(inicio);
-    integral_nova = trapezoidal_seq(f, a, b, i);
+    i = 0;
+    integral_auxiliar = trapezoidal_seq(f, a, b, i);
     do
     {
-        integral = integral_nova;
+        integral = integral_auxiliar;
         i++;
-        integral_nova = trapezoidal_seq(f, a, b, i);
-    } while (fabs(integral_nova - integral) >= TOL);
+        integral_auxiliar = trapezoidal_seq(f, a, b, i);
+    } while (fabs(integral_auxiliar - integral) >= TOL); // condição de parada: atingimos o limite de tolerancia
     GET_TIME(fim);
     delta = fim - inicio;
     printf("Tempo de processamento sequencial: %lf", delta);
-    /*Print the answer */
-    printf("\nO resultado da aproximação sequencial é: %lf", integral_nova);
+    /*Mostra o resultado sequencial */
+    printf("\nO resultado da aproximação sequencial é: %lf ", integral_auxiliar);
     // Compara os resultados
-    diferenca = fabs(res_conc - integral_nova);
-    diferenca = (diferenca * 100) / integral_nova; // calculando o erro relativo
-    printf("\n\nA diferença relativa entre os dois metodos é de %.10f%%\n", diferenca);
-
+    diferenca = fabs(res_conc - integral_auxiliar);
+    diferenca = diferenca / res_conc; // calculando o erro relativo
+    printf("\n\nA diferença relativa entre os dois metodos é de %.10f%%\n", diferenca * 100);
+    if (diferenca > TOL)
+        printf("\nFalhou no teste de corretude.");
+    else
+        printf("\nCorretude provada!");
     /* Desaloca variaveis e termina */
+    GET_TIME(inicio);
     pthread_mutex_destroy(&x_mutex);
+    free(args);
+    GET_TIME(fim);
+    delta = fim - inicio;
+    printf("Tempo de finalização: %lf", delta);
+
+    return 0;
 }
