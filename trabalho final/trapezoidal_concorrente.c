@@ -3,14 +3,14 @@
 #include <math.h>
 #include <unistd.h>
 #include <pthread.h>
-#define TOL 1e-12
-#define NTHREADS 8
+#define TOL 1e-8
 
 /* Variaveis globais */
 pthread_mutex_t x_mutex;
 int qntTrapezios = 8;                       // chute inicial de trapézios
 double integral = 0, integral_auxiliar = 0; // integra
 double h = 0;                               // largura do trapézio
+int NTHREADS;                               //numero de threads
 int max_iter = 35;                          // numero de iterações máximo
 int a = 0, b = 1000000;                     // limites de integração
 
@@ -81,11 +81,12 @@ void *tarefa(void *arg)
     pthread_exit(NULL);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     int i;
     double inicio, fim, delta, diferenca;
     pthread_mutex_init(&x_mutex, NULL);
+    NTHREADS = atoi(argv[1]);
     tArgs *args;
     pthread_t threads[NTHREADS];
     args = (tArgs *)malloc(sizeof(tArgs) * NTHREADS);
@@ -112,6 +113,7 @@ int main()
         integral_auxiliar += f(a) + f(b);                // calcula o resto da expressao agora que todos os pontos foram calculados
         integral_auxiliar = integral_auxiliar * (h / 2); // calcula o resto da expressao agora que todos os pontos foram calculados
         diferenca = fabs(integral_auxiliar - integral);  // calcula a diferenca da integral que acabamos de calcular com a que já tinhamos calculado
+        diferenca = diferenca / integral_auxiliar;
         integral = integral_auxiliar;                    // agora a nova integral vira a velha
         integral_auxiliar = 0;                           // e criamos uma nova integral
         qntTrapezios = qntTrapezios * 1.5;               // vamos aumentando o numero de trapézios para aumentar a precisão
@@ -122,6 +124,7 @@ int main()
     /*Mostra o resultado concorrente */
     printf("\nTempo de processamento concorrente: %lf", delta);
     printf("\nO resultado da aproximação concorrente é: %lf\n\n", integral);
+    printf ("\n Qnt de trapezios: %d \n",qntTrapezios);
     double res_conc = integral;
     // Forma  Sequencial:
     GET_TIME(inicio);
@@ -138,6 +141,7 @@ int main()
     printf("Tempo de processamento sequencial: %lf", delta);
     /*Mostra o resultado sequencial */
     printf("\nO resultado da aproximação sequencial é: %lf ", integral_auxiliar);
+    printf ("\n Qnt de trapezios: %d \n",i);
     // Compara os resultados
     diferenca = fabs(res_conc - integral_auxiliar);
     diferenca = diferenca / res_conc; // calculando o erro relativo
